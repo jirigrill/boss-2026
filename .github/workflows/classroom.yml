@@ -1,0 +1,72 @@
+name: Autograding Tests
+'on':
+  push:
+    branches:
+      - main
+permissions:
+  checks: write
+  actions: read
+  contents: read
+jobs:
+  run-autograding-tests:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-classroom[bot]' && github.repository_owner != 'chaincodelabs'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+    - name: Build
+      id: build
+      uses: classroom-resources/autograding-command-grader@v1
+      with:
+        test-name: Build
+        setup-command: ''
+        command: bash .github/build.sh
+        timeout: 30
+        max-score: 1
+    - name: 'Expect only one failure '
+      id: expect-only-one-failure
+      uses: classroom-resources/autograding-io-grader@v1
+      with:
+        test-name: 'Expect only one failure '
+        setup-command: bash .github/test.sh
+        command: cat results.csv | grep Failed | wc -l
+        input: ''
+        expected-output: '2'
+        comparison-method: exact
+        timeout: 30
+        max-score: 10
+    - name: Autograding Reporter
+      id: autograding-reporter
+      uses: classroom-resources/autograding-grading-reporter@v1
+      env:
+        BUILD_RESULTS: "${{steps.build.outputs.result}}"
+        EXPECT-ONLY-ONE-FAILURE_RESULTS: "${{steps.expect-only-one-failure.outputs.result}}"
+      with:
+        runners: build,expect-only-one-failure
+
+    - name: Notify Discord on success
+      if: always() && steps.autograding-reporter.outcome == 'success'
+      run: |
+        curl -X POST https://boss-bot.up.railway.app/api/challenge-complete \
+          -H "Authorization: Bearer ${{ secrets.API_SECRET }}" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "github_username": "${{ github.actor }}",
+            "test_name": "Test the Test",
+            "channel_id": "${{ secrets.TEST_THE_TEST_SUCCESS }}",
+            "status": "success"
+          }'
+
+    - name: Notify Discord on failure
+      if: always() && steps.autograding-reporter.outcome == 'failure'
+      run: |
+        curl -X POST https://boss-bot.up.railway.app/api/challenge-complete \
+          -H "Authorization: Bearer ${{ secrets.API_SECRET }}" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "github_username": "${{ github.actor }}",
+            "test_name": "Test the Test",
+            "status": "failure"
+          }'
