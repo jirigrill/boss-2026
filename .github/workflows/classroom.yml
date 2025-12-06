@@ -45,28 +45,3 @@ jobs:
         EXPECT-ONLY-ONE-FAILURE_RESULTS: "${{steps.expect-only-one-failure.outputs.result}}"
       with:
         runners: build,expect-only-one-failure
-
-    - name: Notify Discord on success
-      if: always() && steps.autograding-reporter.outcome == 'success'
-      run: |
-        curl -X POST https://boss-bot.up.railway.app/api/challenge-complete \
-          -H "Authorization: Bearer ${{ secrets.API_SECRET }}" \
-          -H "Content-Type: application/json" \
-          -d '{
-            "github_username": "${{ github.actor }}",
-            "test_name": "Test the Test",
-            "channel_id": "${{ secrets.TEST_THE_TEST_SUCCESS }}",
-            "status": "success"
-          }'
-
-    - name: Notify Discord on failure
-      if: always() && steps.autograding-reporter.outcome == 'failure'
-      run: |
-        curl -X POST https://boss-bot.up.railway.app/api/challenge-complete \
-          -H "Authorization: Bearer ${{ secrets.API_SECRET }}" \
-          -H "Content-Type: application/json" \
-          -d '{
-            "github_username": "${{ github.actor }}",
-            "test_name": "Test the Test",
-            "status": "failure"
-          }'
