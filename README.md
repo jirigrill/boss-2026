@@ -13,13 +13,13 @@ We will use *two* signet lightning nodes for this assignment, called `lnd0` and
 
 Lightning node P2P address: `signet.bosschallenge.xyz:9735`
 
-Lightning node pubkey: `034ac7f14e2a1def152692739a7ea539625f0b7cc40a2c65ef73ec7db4c47a8436`
+Lightning node pubkey: `02dbe21ebbd6253b2b0ba1f30cba7331e6e6d48aa289f15bf6d2f267b6c6480fa1`
 
 ### LND1
 
 Lightning node P2P address: `signet.bosschallenge.xyz:9736`
 
-Lightning node pubkey: `02aa3cd72329c8e0168998647c537a81266d65e37b70a9ae482dc5fe7d9c95d07f`
+Lightning node pubkey: `02a04400bc8aaeb00046deebb148eac438a91bcfc6307d8432eece0cdb35915961`
 
 
 ## Node setup
