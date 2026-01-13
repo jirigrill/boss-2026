@@ -1,7 +1,7 @@
 # Week 2: Send A Multisig Transaction
 
 Challenge: extend your wallet program to spend your own coins. You will create
-two transactions: one that spends from a single-key `p2wpkh` and funds a `p2wsh`
+two transactions: one that spends from a key-path `p2tr` and funds a script-path `p2tr`
 multisig, and a second transaction that spends from that multisig. You will
 sign and broadcast both transactions to the signet network, and submit your code
 that gnerates both transactions as hex-encoded strings.
@@ -16,19 +16,19 @@ and again, use of the Bitcoin Core wallet is not allowed by your submitted code.
 
 1. Re-run last week's code to recover wallet state: 2000 key pairs, and all unspent coins
 2. Create a 2-of-2 multisig script from the first two keys (indexes 0 & 1)
-3. Compute the [`p2wsh` witness program](https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#user-content-P2WSH) from that script
-4. Construct the first transaction (spend from p2wpkh):
+3. Compute the [tap tree and `p2tr` witness program](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#user-content-Constructing_and_spending_Taproot_outputs) from that script
+4. Construct the first transaction (spend from key-path `p2tr`):
     1. Choose one of your unspent coins for the input
     2. Add an output: 0.01 BTC output to your multisig witness program
-    3. Another output: the change (minus fee!) back to your 0th key's public key hash witness program
-    4. Compute the `SIGHASH_ALL` transaction digest for your input as specified in [BIP 143](https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki#user-content-Specification)
+    3. Another output: the change (minus fee!) back to your 0th key's key-path `p2tr` program
+    4. Compute the `SIGHASH_ALL` transaction digest for your input as specified in [BIP 341](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#user-content-Common_signature_message)
     5. Sign the digest using the key responsible for the coin you are spending
     6. Create a transaction witness with the signature and public key
     7. Serialize the transaction (without witness data!) and compute the txid
     8. Serialize the final complete transaction
-    9. Return both the txid (required to spend from the p2wsh) and the complete hex-encoded transaction.
-5. Construct the second transaction (spend from p2wsh):
-    1. Repeat the previous steps but spend the `p2wsh` multisig output you created in the last transaction as the input to the new transaction
+    9. Return both the txid (required to spend from the script-path `p2tr`) and the complete hex-encoded transaction.
+5. Construct the second transaction (spend from script-path `p2tr`):
+    1. Repeat the previous steps but spend the script-path `p2tr` multisig output you created in the last transaction as the input to the new transaction
     2. Send 0 BTC to an `OP_RETURN` output script which encodes your full name (or nym) in ASCII
     3. Don't forget the change output and fee! You can reuse your 0th key like before.
     4. Serialize the final transaction and return the hex encoded string.
@@ -72,28 +72,15 @@ objects yourself.
 
 ## Hints
 
+- [BIP 342: Validation of Taproot Scripts](https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki)
 - [BIP 141: Segregated Witness (Consensus layer)](https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki)
 - [BIP 143: Transaction Signature Verification for Version 0 Witness Program](https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki)
 - [Bitcoin protocol TX serialization](https://en.bitcoin.it/wiki/Protocol_documentation#tx)
-- [Bitcoin script opcodes and their hex representation in raw scripts](https://en.bitcoin.it/wiki/Script)
 - When constructing a multisig script use `OP_2` (not `0x02`) to indicate the number of required signatures and keys
 - Other data like public keys must be pushed to the stack with length bytes (e.g. `0x21` for a 33-byte compressed public key)
-- p2wsh witness programs do not commit to a length byte, just the raw script
-- p2wsh witness programs are a *single* sha-256 hash of the raw script
-- p2wpkh witness programs are the ripemd-160 hash of a sha-256 hash of the raw compressed public key
 - For our purposes, all input sequences are `0xffffffff` and all transaction locktimes are `0x00000000`
 - Since we are only concerned with segregated witness transactions, input `scriptSig` will always be empty (`0x00`, a 0-length script)
 - The `scriptcode` in the transaction commitment must be prefixed with a length byte, but the witness program only commits to the raw script with no length byte
-- The `SIGHASH_ALL` flag is one byte `0x01` when appended to a signature in a witness, but is four bytes little-endian `\x01\x00\x00\x00` in the transaction commitment
-- Bitcoin signatures:
-    - Must be strict-DER encoded
-    - Must have the SIGHASH_ALL byte (`0x01`) appended
-    - Must have a low s value as defined by [BIP 62](https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki#user-content-Low_S_values_in_signatures)
-- Remember to add a `0x00` byte as the first witness stack element for the [CHECKMULTISIG bug](https://github.com/bitcoin/bips/blob/master/bip-0147.mediawiki)
-
-See the obfuscated [example solution](example_solution/spend.py) which may be used as a template
-for your project in Python, or as an example architecture for whatever language you choose.
-
 
 ## Example output
 
