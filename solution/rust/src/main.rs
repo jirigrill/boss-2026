@@ -29,10 +29,14 @@ fn main() {
 
     // println!("{:?}", hex::encode(der_priv_child_key.key.secret_bytes()));
 
-    // let mut args = std::env::args().skip(1);
-    // let command = args.next().expect("Expected a command");
-
     let state = recover_wallet_state(EXTENDED_PRIVATE_KEY);
+
+    // let mut bal = state.balance;
+    // bal.rescale(8);
+    // println!("{WALLET_NAME} {bal}");
+
+    let mut args = std::env::args().skip(1);
+    let command = args.next().expect("Expected a command");
 
     if command == "balance" {
         let mut bal = state.balance;

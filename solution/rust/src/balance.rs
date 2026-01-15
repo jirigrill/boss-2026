@@ -298,8 +298,8 @@ pub fn recover_wallet_state(xprv: &str) -> State {
     let extended_key = deserialize_key(&base58_decode(xprv));
     let master_key_bytes: [u8; 32] = extended_key.key[1..33].try_into().unwrap();
     let master_key = SecretKey::from_byte_array(master_key_bytes).unwrap();
-    //path is hardcoded based on email I received
-    let path = vec![(86, true), (1, true), (0, true)];
+    // Path from email: m/86h/1h/0h/0/*
+    let path = vec![(86, true), (1, true), (0, true), (0, false)];
 
     // Generate all the keypairs and witness programs to search for
     state.privs = get_wallet_privs(&master_key, extended_key.chaincode, path);
@@ -310,9 +310,19 @@ pub fn recover_wallet_state(xprv: &str) -> State {
         state.programs.push(get_p2tr_keypath_program(&pub_key));
     }
 
+    // // ========== DEBUG START ==========
+    // println!("Generated {} private keys", state.privs.len());
+    // println!("Generated {} public keys", state.pubs.len());
+    // println!("Generated {} witness programs", state.programs.len());
+    // println!("First witness program: {}", hex::encode(&state.programs[0]));
+    // println!("Second witness program: {}", hex::encode(&state.programs[1]));
+    // println!("Last witness program: {}", hex::encode(&state.programs[1999]));
+    // // ========== DEBUG END ==========
+
+    let mut p2tr_outputs_found = 0;
+
     // Scan blocks 0-300
-    for height in 0..300 {
-        // Change to 0..=300 when ready to run full scan
+    for height in 0..=300 {
         let blockhash = bcli(&format!("getblockhash {}", height));
         let block_data = bcli(&format!("getblock {} 2", blockhash.trim()));
         let block: Value = serde_json::from_str(&block_data).unwrap();
@@ -339,6 +349,13 @@ pub fn recover_wallet_state(xprv: &str) -> State {
                             // Remove this coin from our wallet state utxo pool
                             // so we don't double spend it later and deduct from our balance
                             if let Some(utxo) = state.utxo.remove(&outpoint_ser) {
+                                // // ========== DEBUG START ==========
+                                // println!("SPENDING OUR COIN!");
+                                // println!("  Block: {}", height);
+                                // println!("  Txid: {}", txid_str);
+                                // println!("  Vout: {}", vout_num);
+                                // println!("  Value spent: {}", utxo.value);
+                                // // ========== DEBUG END ==========
                                 state.balance -= utxo.value;
                             }
                         }
@@ -356,7 +373,21 @@ pub fn recover_wallet_state(xprv: &str) -> State {
                             if scriptpubkey_bytes.len() == 34 {
                                 let scriptpubkey: [u8; 34] = scriptpubkey_bytes.try_into().unwrap();
 
+                                // Count all P2TR outputs we see
+                                if scriptpubkey[0] == 0x51 && scriptpubkey[1] == 0x20 {
+                                    p2tr_outputs_found += 1;
+                                }
+
                                 if state.programs.contains(&scriptpubkey) {
+                                    // // ========== DEBUG START ==========
+                                    // println!("MATCH FOUND! RECEIVING COINS!");
+                                    // println!("  Block: {}", height);
+                                    // println!("  Txid: {}", tx["txid"].as_str().unwrap());
+                                    // println!("  Vout: {}", output["n"]);
+                                    // println!("  Value: {}", output["value"]);
+                                    // println!("  ScriptPubKey: {}", scriptpubkey_hex);
+                                    // // ========== DEBUG END ==========
+
                                     // Add to our total balance
                                     let value =
                                         Decimal::from_f64(output["value"].as_f64().unwrap())
@@ -383,6 +414,14 @@ pub fn recover_wallet_state(xprv: &str) -> State {
             }
         }
     }
+
+    // // ========== DEBUG START ==========
+    // println!("\n=== FINAL WALLET STATE ===");
+    // println!("Total P2TR outputs found in blocks: {}", p2tr_outputs_found);
+    // println!("Total balance: {}", state.balance);
+    // println!("Number of UTXOs: {}", state.utxo.len());
+    // println!("=========================\n");
+    // // ========== DEBUG END ==========
 
     state
 }
