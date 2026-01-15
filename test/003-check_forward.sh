@@ -7,7 +7,7 @@ source test/preimage_utils.sh
 rhash_value=$(calculate_sha256_hash "submissions/003-preimage.txt")
 
 # Expected chan_id provided as the first argument
-expected_chan_id=356241767464960
+expected_chan_id=362838837231616
 
 wd=$(pwd)
 
