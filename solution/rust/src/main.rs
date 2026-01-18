@@ -38,10 +38,10 @@ fn main() {
     if command == "spend" {
         let (txid, tx1) = spend_p2tr_keypath(&state);
         println!("{tx1}");
-    // let tx2 = spend_p2tr_scriptpath(&state, &txid);
-    //     println!("{tx2}");
-    // Un-comment the line below to test your answer locally
-    // Don't submit your code like that though or autograder will fail!
-    // println!("{}", bcli(&format!("testmempoolaccept [\"{tx1}\",\"{tx2}\"]")));
-    // }
+        // let tx2 = spend_p2tr_scriptpath(&state, &txid);
+        //     println!("{tx2}");
+        // Un-comment the line below to test your answer locally
+        // Don't submit your code like that though or autograder will fail!
+        // println!("{}", bcli(&format!("testmempoolaccept [\"{tx1}\",\"{tx2}\"]")));
+    }
 }
