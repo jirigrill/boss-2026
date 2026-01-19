@@ -105,11 +105,20 @@ pub fn get_p2tr_scriptpath_program_parity_bit(
     taptree_root: &[u8; 32],
 ) -> bool {
     // Get the 32-byte X coordinate from the internal public key
+    let x_coordinate = internal_key.serialize();
 
+    let mut tweak_data = [0u8; 64];
+    tweak_data[..32].copy_from_slice(&x_coordinate);
+    tweak_data[32..].copy_from_slice(taptree_root);
     // Compute the TapTweak
+    let tap_tweak = tagged_hash(&tweak_data, "TapTweak");
 
     // Compute the output public key by tweaking the internal key
-    todo!()
+    let (output_key, parity) = internal_key
+        .add_tweak(SECP256K1, &Scalar::from_be_bytes(tap_tweak).unwrap())
+        .unwrap();
+
+    parity == Parity::Odd
 }
 
 // Given an Outpoint, return a serialized transaction input spending it.
@@ -244,18 +253,43 @@ pub fn get_p2tr_scriptpath_witness(
 ) -> Vec<u8> {
     let mut witness: Vec<u8> = Vec::new();
     // Push number of witness items
+    witness.push(0x04); //4 items
 
     // Derive public keys first
+    let mut public_keys = Vec::new();
+    for privkey in &private_keys {
+        public_keys.push(privkey.x_only_public_key(SECP256K1).0);
+    }
 
     // Push signatures into witness in reverse order because they will be un-reversed on the stack
+    let mut signatures = Vec::new();
+    for privkey in private_keys.iter().rev() {
+        signatures.push(sign(*privkey, msg));
+    }
 
     // Compile script and push bytes to witness
+    for signature in signatures {
+        witness.push(0x40); // 64 bytes
+        witness.extend_from_slice(&signature);
+    }
+
+    let script = create_multisig_script(&public_keys);
+    witness.push(compact_size(script.len()));
+    witness.extend_from_slice(&script);
 
     // Because we only have one script in our taptree, the control block
     // is just the prefix byte plus the internal key, which is our NUMS point.
+    let mut control_block = Vec::new();
+    // First byte: leaf version (0xc0) OR'd with parity bit
+    control_block.push(0xc0 | if parity_bit { 0x01 } else { 0x00 });
+    // Next 32 bytes: the internal key (NUMS point)
+    control_block.extend_from_slice(&get_nums().serialize());
+
+    witness.push(compact_size(control_block.len()));
+    witness.extend_from_slice(&control_block);
 
     // witness
-    todo!()
+    witness
 }
 
 // Given vectors of inputs, outputs, and witnesses, assemble the complete
@@ -331,15 +365,15 @@ pub fn spend_p2tr_keypath(state: &State) -> (String, String) {
 
     // println!("witness program: {}", hex::encode(&witness_program));
 
+    let input_satoshi = sats(&utxo.value);
+
     // Get a change output script (one of our wallet's witness programs) and create a change output
-    let change_sathoshi = ((utxo.value - AMT - FEE) * Decimal::new(100_000_000, 0))
-        .to_u64()
-        .unwrap();
+    let change_sathoshi = sats(&(utxo.value - AMT - FEE));
     let change_output = output_from_options(&state.programs[0], change_sathoshi);
 
     // println!("change output: {}", hex::encode(&change_output));
 
-    let output_satoshi = (AMT * Decimal::new(100_000_000, 0)).to_u64().unwrap();
+    let output_satoshi = sats(&AMT);
     let output = output_from_options(&witness_program, output_satoshi);
 
     // println!("output: {}", hex::encode(&output));
@@ -348,7 +382,7 @@ pub fn spend_p2tr_keypath(state: &State) -> (String, String) {
     let message = get_commitment_hash(
         outpoint_bytes,
         &utxo.scriptpubkey,
-        &output_satoshi,
+        &input_satoshi,
         &[&output, &change_output],
         0,
         &None,
@@ -405,26 +439,68 @@ pub fn spend_p2tr_scriptpath(state: &State, txid: &str) -> String {
     let AMT = 0u64;
     // Create the input from the utxo
     // Reverse the txid hash from human-readable JSON format to bitcoin wire format
+    let mut txid_bytes = <[u8; 32]>::from_hex(txid).unwrap();
+    txid_bytes.reverse();
+
+    let outpoint = Outpoint {
+        txid: txid_bytes,
+        vout: 0,
+    };
+
+    let spend_tx_input = input_from_utxo(&outpoint);
 
     // Compute destination output script and output
+    let github_handle = "jirigrill";
+    let mut op_return_script = Vec::new();
+    op_return_script.push(0x6a); //OP_RETURN
+    op_return_script.push(compact_size(github_handle.len()));
+    op_return_script.extend_from_slice(github_handle.as_bytes());
+
+    let output = output_from_options(&op_return_script, AMT);
 
     // Compute change output script and output
+    let change_value = COIN_VALUE - FEE;
+
+    let change_output = output_from_options(&state.programs[0], change_value);
 
     // Get taproot spending data
     //   Compute destination output script
+    let pubkey1 = state.pubs[0].x_only_public_key().0;
+    let pubkey2 = state.pubs[1].x_only_public_key().0;
+    let multisig = create_multisig_script(&[pubkey1, pubkey2]);
 
     //   Compute taptree root
+    let taproot_root = get_taptree_root(&multisig);
 
     //   Compute witness program from taptree root and "NUMS" internal key
+    let witness_program = get_p2tr_scriptpath_program(&get_nums(), &taproot_root);
 
     //   Determine if the output key (which is a tweaked internal key) has an odd Y-coordinate
+    let parity_bit = get_p2tr_scriptpath_program_parity_bit(&get_nums(), &taproot_root);
 
     // Get the message to sign
+    let mut outpoint_bytes = [0u8; 36];
+    outpoint_bytes[..32].copy_from_slice(&outpoint.txid);
+    outpoint_bytes[32..].copy_from_slice(&outpoint.vout.to_le_bytes());
+
+    let message = get_commitment_hash(
+        &outpoint_bytes,
+        &witness_program,
+        &COIN_VALUE,
+        &[&output, &change_output],
+        1,
+        &Some(taproot_root),
+    );
 
     // Sign!
+    let witness =
+        get_p2tr_scriptpath_witness(vec![state.privs[0], state.privs[1]], &message, parity_bit);
 
     // Assemble
-    todo!()
+    let assembled_tx =
+        assemble_transaction(&[&spend_tx_input], &[&output, &change_output], &[&witness]);
+
+    assembled_tx
 }
 
 // bitcoin-cli -signet testmempoolaccept '["020000000001015b260d2812ab56ff8eda6ea4278a569dcab4614799ab34932ddfcb4a5ef434acc301000000ffffffff0240420f00000000002251200e2ed2e6e95df8e1684c1ecb760331ec84e7f1fd8536346fafeec70a8e96eef973d1520000000000225120e8cf84318a4365882a5c93f4450a3eefad4c724eb2d177f1e13a087330fe65b30140e1713fdba8f69be31e07abd25dd343cd8a61bbb0f9a6ba9a628f5f1ab098cef0fbea53425d71a14516b928b5a26e97cda0257cdaa586ea2c9b761b1a8c5dc87d00000000"]'
