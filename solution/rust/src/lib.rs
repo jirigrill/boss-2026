@@ -166,7 +166,7 @@ fn parse_hex(signed_result: &str) -> String {
 pub fn bcli(cmd: &str) -> String {
     let res = Command::new("bitcoin-cli")
         .arg("-regtest")
-        .arg("-datadir=/Users/jirigrill/Developer/boss-2026/coin-selection/datadir/node0")
+        //.arg("-datadir=/Users/jirigrill/Developer/boss-2026/coin-selection/datadir/node0")
         .arg("-rpcuser=student")
         .arg("-rpcpassword=boss2026")
         .arg("-rpcwallet=student")
