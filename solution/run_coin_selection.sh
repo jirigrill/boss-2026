@@ -1,5 +1,5 @@
 # PYTHON
-python ./solution/python/coin-selection.py
+#python ./solution/python/coin-selection.py
 
 # RUST
-# cargo run --manifest-path ./solution/rust/Cargo.toml
+cargo run --manifest-path ./solution/rust/Cargo.toml
