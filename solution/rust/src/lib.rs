@@ -62,6 +62,16 @@ fn get_output_vbytes(address: &str) -> f64 {
     AddressType::from_address(address).output_vbytes()
 }
 
+fn calculate_fee(vbytes: f64, fee_rate_btc_per_kvb: Decimal) -> Decimal {
+    // Convert fee rate from BTC/kvB to BTC/vB
+    let fee_rate_vb = fee_rate_btc_per_kvb / Decimal::from(1000);
+    let fee_btc = Decimal::from_f64_retain(vbytes).unwrap() * fee_rate_vb;
+
+    // Round up to nearest satoshi to ensure we meet the minimum fee rate
+    let fee_sats = (fee_btc * Decimal::from(100_000_000)).ceil();
+    fee_sats / Decimal::from(100_000_000)
+}
+
 fn calculate_tx_vbytes(inputs: &[&Coin], has_change: bool, output_address: &str) -> f64 {
     // check if any input requires witness
     let has_witness = inputs.iter().any(|input| input.is_segwit());
@@ -156,7 +166,7 @@ fn parse_hex(signed_result: &str) -> String {
 pub fn bcli(cmd: &str) -> String {
     let res = Command::new("bitcoin-cli")
         .arg("-regtest")
-        // .arg("-datadir=/Users/jirigrill/Developer/boss-2026/coin-selection/datadir/node0")
+        .arg("-datadir=/Users/jirigrill/Developer/boss-2026/coin-selection/datadir/node0")
         .arg("-rpcuser=student")
         .arg("-rpcpassword=boss2026")
         .arg("-rpcwallet=student")
@@ -210,8 +220,8 @@ fn select_coins_greedy<'a>(utxos: &'a [Coin], payment: &'a Payment) -> Vec<&'a C
 
         // Calculate fee with change output
         let tx_vbytes = calculate_tx_vbytes(&selected, true, &payment.address);
-        let fee_rate_vb = fee_rate / Decimal::from(1000); // Convert BTC/kvB to BTC/vB
-        let required = target + (Decimal::from_f64_retain(tx_vbytes).unwrap() * fee_rate_vb);
+        let fee = calculate_fee(tx_vbytes, fee_rate);
+        let required = target + fee;
 
         eprintln!(
             "  Selected {} UTXOs, total_value={}, required={}",
@@ -256,11 +266,10 @@ pub fn make_payments(payments: &[Payment]) {
             panic!("No suitable UTXOs found for payment");
         }
 
-        // calculate change
+        // Calculate change
         let total_input: Decimal = selected.iter().map(|selected| selected.amount).sum();
         let tx_vbytes = calculate_tx_vbytes(&selected, true, &payment.address);
-        let fee_rate_vb = payment.rate / Decimal::from(1000); // Convert BTC/kvB to BTC/vB
-        let fee = Decimal::from_f64_retain(tx_vbytes).unwrap() * fee_rate_vb;
+        let fee = calculate_fee(tx_vbytes, payment.rate);
         let change_amount = total_input - payment.amount - fee;
 
         let mut outputs = HashMap::new();
