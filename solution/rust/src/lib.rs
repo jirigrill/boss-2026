@@ -69,7 +69,15 @@ fn calculate_fee(vbytes: f64, fee_rate_btc_per_kvb: Decimal) -> Decimal {
 
     // Round up to nearest satoshi to ensure we meet the minimum fee rate
     let fee_sats = (fee_btc * Decimal::from(100_000_000)).ceil();
-    fee_sats / Decimal::from(100_000_000)
+    let fee = fee_sats / Decimal::from(100_000_000);
+
+    eprintln!("DEBUG calculate_fee: vbytes={}, fee_rate={} BTC/kvB", vbytes, fee_rate_btc_per_kvb);
+    eprintln!("  fee_rate_vb={} BTC/vB", fee_rate_vb);
+    eprintln!("  fee_btc={} BTC", fee_btc);
+    eprintln!("  fee_sats={} sats (after ceil)", fee_sats);
+    eprintln!("  fee={} BTC (final)", fee);
+
+    fee
 }
 
 fn calculate_tx_vbytes(inputs: &[&Coin], has_change: bool, output_address: &str) -> f64 {
@@ -271,6 +279,13 @@ pub fn make_payments(payments: &[Payment]) {
         let tx_vbytes = calculate_tx_vbytes(&selected, true, &payment.address);
         let fee = calculate_fee(tx_vbytes, payment.rate);
         let change_amount = total_input - payment.amount - fee;
+
+        eprintln!("DEBUG make_payments:");
+        eprintln!("  total_input={} BTC", total_input);
+        eprintln!("  payment.amount={} BTC", payment.amount);
+        eprintln!("  tx_vbytes={}", tx_vbytes);
+        eprintln!("  fee={} BTC", fee);
+        eprintln!("  change_amount={} BTC", change_amount);
 
         let mut outputs = HashMap::new();
         outputs.insert(payment.address.clone(), payment.amount);
