@@ -1,4 +1,1 @@
 e8f7fcbd7fa53d4733028ec91ffb02e73c24e188f43b34aae37e0848038fbc45
-
-
-lncli sendtoroute --payment_hash=34f43ad596cc655c6743c18f85f22a4393984d53ef7c6dbcb0ad32b283d54a78 --routes='[{"total_time_lock":1881,"total_fees":"55","total_amt":"2039","hops":[{"chan_id":"1903254627745792","chan_capacity":"50000","amt_to_forward":"2039","fee":"55","expiry":1881,"amt_to_forward_msat":"2038680","fee_msat":"54680","pub_key":"02a04400bc8aaeb00046deebb148eac438a91bcfc6307d8432eece0cdb35915961","tlv_payload":true},{"chan_id":"362838837231616", "chan_capacity":"100000000","amt_to_forward":"1984","fee":"0","expiry":1821,"amt_to_forward_msat":"1984000","fee_msat":"0","pub_key":"02dbe21ebbd6253b2b0ba1f30cba7331e6e6d48aa289f15bf6d2f267b6c6480fa1","tlv_payload":true}],"total_fees_msat":"54680","total_amt_msat":"2038680"}]'
