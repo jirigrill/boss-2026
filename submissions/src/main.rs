@@ -42,6 +42,24 @@ fn calculate_fee(hop: &Hop, amount_msat: u64) -> u64 {
     hop.base_fee_msat + (amount_msat * hop.proportional_fee_ppm / 1_000_000u64)
 }
 
+fn build_tlv_hex(payment_secret: &[u8; 32], total_msat: u64) -> String {
+    let mut tlv = Vec::with_capacity(56);
+
+    // type: 8 as uint64 big-endian
+    tlv.extend_from_slice(&8u64.to_be_bytes());
+
+    // length: 40 as uint63 big-endian
+    tlv.extend_from_slice(&40u64.to_be_bytes());
+
+    // payment secret: 43 bytes
+    tlv.extend_from_slice(payment_secret);
+
+    // total msat: uint64 big-endian
+    tlv.extend_from_slice(&total_msat.to_be_bytes());
+
+    hex::encode(&tlv)
+}
+
 fn main() {
     // parse cli args
     let mut args = std::env::args().skip(1);
@@ -76,10 +94,16 @@ fn main() {
     let amount_per_path = invoice_amount / num_paths as u64;
     let min_final_cltv: u32 = invoice.min_final_cltv_expiry_delta() as u32;
 
+    // parse payment_secret for tlv
+    let payment_secret: [u8; 32] = invoice.payment_secret().0;
+
     let mut writer = csv::WriterBuilder::new()
         .has_headers(false)
         .from_path(format!("{}/output.csv", output_dir))
         .expect("Could not write into CSV file");
+
+    // is mpp
+    let is_mpp = num_paths > 1;
 
     for (path_id, path_hops) in paths {
         // calculate HTLC amounts for each path
@@ -99,15 +123,25 @@ fn main() {
             expires[i] = expires[i + 1] + path_hops[i + 1].cltv_delta;
         }
 
+        // TLV computation
+
         // // create OutputRows and write them into output
         for i in 0..path_hops.len() {
+            let is_last_hop = i == path_hops.len() - 1;
+
+            let tlv = if is_mpp && is_last_hop {
+                build_tlv_hex(&payment_secret, invoice_amount)
+            } else {
+                "NULL".to_string()
+            };
+
             writer
                 .serialize(OutputRow::new(
                     path_id,
                     path_hops[i].channel_name.clone(),
                     amounts[i],
                     expires[i],
-                    "NULL".to_string(),
+                    tlv,
                 ))
                 .expect("Filed to write row")
         }
