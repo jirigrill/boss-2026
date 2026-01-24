@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use lightning_invoice::Bolt11Invoice;
 
 #[derive(Debug, serde::Deserialize)]
@@ -59,44 +61,55 @@ fn main() {
         .map(|r| r.expect("Failed to parse CSV row"))
         .collect();
 
-    // parse amount to pay in millisatoshis and minimum final cltv expire delta
+    // group hops based on their path_id and count numner of paths
+    let mut paths: BTreeMap<u32, Vec<Hop>> = BTreeMap::new();
+    for hop in hops {
+        paths.entry(hop.path_id).or_default().push(hop);
+    }
+    let num_paths = paths.len();
+
+    // parse amount per path to pay in millisatoshis and minimum final cltv expire delta
     let invoice: Bolt11Invoice = invoice_str.parse().expect("Invalid payment request");
     let invoice_amount: u64 = invoice
         .amount_milli_satoshis()
         .expect("Invoice must have amount");
+    let amount_per_path = invoice_amount / num_paths as u64;
     let min_final_cltv: u32 = invoice.min_final_cltv_expiry_delta() as u32;
 
-    // calculate HTLC amounts
-    let last_index = hops.len() - 1;
-    let mut amounts = vec![0u64; hops.len()];
-    amounts[last_index] = invoice_amount;
-    for i in (0..last_index).rev() {
-        let next_amount = amounts[i + 1];
-        let fee = calculate_fee(&hops[i + 1], next_amount);
-        amounts[i] = next_amount + fee;
-    }
-
-    // calculate cltv expires
-    let mut expires = vec![0u32; hops.len()];
-    expires[last_index] = height + min_final_cltv;
-    for i in (0..last_index).rev() {
-        expires[i] = expires[i + 1] + hops[i + 1].cltv_delta;
-    }
-
-    // create OutputRows and write them into output
     let mut writer = csv::WriterBuilder::new()
         .has_headers(false)
         .from_path(format!("{}/output.csv", output_dir))
         .expect("Could not write into CSV file");
-    for i in 0..hops.len() {
-        writer
-            .serialize(OutputRow::new(
-                hops[i].path_id,
-                hops[i].channel_name.clone(),
-                amounts[i],
-                expires[i],
-                "NULL".to_string(),
-            ))
-            .expect("Filed to write row")
+
+    for (path_id, path_hops) in paths {
+        // calculate HTLC amounts for each path
+        let last_index = path_hops.len() - 1;
+        let mut amounts = vec![0u64; path_hops.len()];
+        amounts[last_index] = amount_per_path;
+        for i in (0..last_index).rev() {
+            let next_amount = amounts[i + 1];
+            let fee = calculate_fee(&path_hops[i + 1], next_amount);
+            amounts[i] = next_amount + fee;
+        }
+
+        // calculate cltv expires
+        let mut expires = vec![0u32; path_hops.len()];
+        expires[last_index] = height + min_final_cltv;
+        for i in (0..last_index).rev() {
+            expires[i] = expires[i + 1] + path_hops[i + 1].cltv_delta;
+        }
+
+        // // create OutputRows and write them into output
+        for i in 0..path_hops.len() {
+            writer
+                .serialize(OutputRow::new(
+                    path_id,
+                    path_hops[i].channel_name.clone(),
+                    amounts[i],
+                    expires[i],
+                    "NULL".to_string(),
+                ))
+                .expect("Filed to write row")
+        }
     }
 }
