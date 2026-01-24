@@ -14,6 +14,6 @@ current_block_height="$4"
 version="rustc 1.75.0"
 
 # Build and run the Rust solution
-cd ./solution
+cd ./submissions
 cargo build --release 2>/dev/null
 ./target/release/solution "$output_file_path" "$input_file_path" "$payment_request_bech32" "$current_block_height"
