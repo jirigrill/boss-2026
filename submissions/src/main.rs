@@ -190,8 +190,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         for row in rows {
             writer.serialize(row).expect("Failed to write row");
-            writer.flush().expect("Failed to flush CSV");
         }
     }
+    writer.flush().expect("Failed to flush CSV");
     Ok(())
 }
