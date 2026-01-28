@@ -20,4 +20,4 @@ fi
 # Your run command here:
 cd ./submissions
 cargo build --release
-./target/release/solution "$output_directory" "$input_file"
+./target/release/submissions "$output_directory" "$input_file"
