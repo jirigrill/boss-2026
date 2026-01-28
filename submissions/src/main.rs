@@ -3,17 +3,10 @@ use chacha20::{
     ChaCha20,
 };
 use hmac::{Hmac, Mac};
-use secp256k1::{
-    ecdh::{self, SharedSecret},
-    PublicKey, SecretKey, SECP256K1,
-};
+use secp256k1::{PublicKey, Scalar, SecretKey, SECP256K1};
 use serde_with::{hex::Hex, serde_as};
 use sha2::{Digest, Sha256};
-use std::{
-    error::Error,
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{error::Error, fs, path::PathBuf};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -78,9 +71,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for hop in json_data.hops.iter() {
         let hop_publickey = PublicKey::from_slice(&hop.pubkey)?;
 
-        // ECDH with current ephemeral key
-        let ecdh_res = SharedSecret::new(&hop_publickey, &ephemeral_privkey);
-        let shared_secret: [u8; 32] = ecdh_res.secret_bytes();
+        // ECDH with current ephemeral key - compute shared point and hash it
+        let scalar = Scalar::from(ephemeral_privkey);
+        let shared_point = hop_publickey.mul_tweak(SECP256K1, &scalar)?;
+        let shared_bytes = shared_point.serialize(); // Compressed, 33 bytes
+        let shared_secret: [u8; 32] = Sha256::digest(&shared_bytes).into();
         shared_secrets.push(shared_secret);
 
         // blinding factor: SHA256(ephemeral_pubkey || shared_secret)
@@ -105,56 +100,102 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         mu_keys.push(derive_key(ss, b"mu"));
     }
 
-    // generate filler
-    let mut filler = Vec::new();
-    let last_index = json_data.hops.len() - 1;
+    // generate filler using cumulative sizes
+    let num_hops = json_data.hops.len();
 
-    for i in 0..last_index {
-        let shift_amount = json_data.hops[i].payload.len() + 32;
+    // 1. calculate hop sizes (payload + HMAC) and cumulative sizes
+    let hop_sizes: Vec<usize> = json_data
+        .hops
+        .iter()
+        .map(|h| h.payload.len() + 32)
+        .collect();
+    let mut cumulative_sizes: Vec<usize> = Vec::with_capacity(num_hops);
+    for i in 0..num_hops {
+        cumulative_sizes.push(hop_sizes.iter().take(i).sum());
+    }
 
-        //extend filter with zeros
-        filler.resize(filler.len() + shift_amount, 0);
+    let mut filler_accumulators: Vec<Vec<u8>> = Vec::with_capacity(num_hops);
 
-        // generate keysream to cover positiion 1300 + filler.len()
-        let mut keystream = vec![0u8; 1300 + filler.len()];
+    for i in 0..(num_hops - 1) {
+        // 2. generate keystream of 2600 bytes (extends beyond packet for filler computation)
+        let mut keystream = vec![0u8; 2600];
         let mut cipher = ChaCha20::new(rho_keys[i].as_ref().into(), &[0u8; 12].into());
         cipher.apply_keystream(&mut keystream);
 
-        // xor entire filler with keystream starting at offset 1300
-        for j in 0..filler.len() {
-            filler[j] ^= keystream[1300 + j];
+        // 3. calculate filler boundaries using cumulative sizes
+        let filler_start = 1300 - cumulative_sizes[i];
+        let filler_end = 1300 + json_data.hops[i].payload.len();
+        let filler_length = filler_end + 32 - filler_start;
+
+        // 4. xor zeros with keystream at filler position
+        let mut this_filler = vec![0u8; filler_length];
+        for j in filler_start..(filler_end + 32) {
+            let idx = j - filler_start;
+            this_filler[idx] ^= keystream[j];
+        }
+
+        // 5. accumulate with previous filler (XOR chain)
+        if i == 0 {
+            filler_accumulators.push(this_filler);
+        } else {
+            let prev_filler = &filler_accumulators[i - 1];
+            let mut filler_acc = this_filler;
+            for j in 0..cumulative_sizes[i] {
+                filler_acc[j] ^= prev_filler[j];
+            }
+            filler_accumulators.push(filler_acc);
         }
     }
 
+    let filler = if num_hops > 1 {
+        filler_accumulators.last().cloned().unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
     // build the onion
+    // 1. initialize routing_info with pad_key encrypted zeros (pseudo-random padding)
+    let pad_key = derive_key(&json_data.session_key, b"pad");
     let mut routing_info = [0u8; 1300];
+    let mut pad_cipher = ChaCha20::new(pad_key.as_ref().into(), &[0u8; 12].into());
+    pad_cipher.apply_keystream(&mut routing_info);
+
     let mut current_hmac = [0u8; 32];
-    let num_hops = json_data.hops.len();
+
+    // pre-generate rho streams (2600 bytes each) for onion construction
+    let mut rho_streams: Vec<Vec<u8>> = Vec::with_capacity(num_hops);
+    for i in 0..num_hops {
+        let mut stream = vec![0u8; 2600];
+        let mut cipher = ChaCha20::new(rho_keys[i].as_ref().into(), &[0u8; 12].into());
+        cipher.apply_keystream(&mut stream);
+        rho_streams.push(stream);
+    }
 
     for i in (0..num_hops).rev() {
         let payload = &json_data.hops[i].payload;
         let shift_amount = payload.len() + 32;
 
-        // 1. shift right - make space in the front
+        // 2. shift right - make space in the front
         routing_info.copy_within(0..1300 - shift_amount, shift_amount);
 
-        // 2, insert payload in position 0
+        // 3. insert payload in position 0
         routing_info[0..payload.len()].copy_from_slice(payload);
 
-        // 3. insert current hmac after payload
+        // 4. insert current hmac after payload
         routing_info[payload.len()..payload.len() + 32].copy_from_slice(&current_hmac);
 
-        // 4. encrypt with chacha20
-        let mut cipher = ChaCha20::new(rho_keys[i].as_ref().into(), &[0u8; 12].into());
-        cipher.apply_keystream(&mut routing_info);
+        // 5. encrypt with chacha20 (XOR with rho stream)
+        for j in 0..1300 {
+            routing_info[j] ^= rho_streams[i][j];
+        }
 
-        // 5. instert filler - only on first iteration
+        // 6. insert filler - only on last hop (first iteration in reverse)
         if i == num_hops - 1 {
             let filler_start = 1300 - filler.len();
             routing_info[filler_start..].copy_from_slice(&filler);
         }
 
-        // 6. compute hmac
+        // 7. compute hmac
         let mut mac = HmacSha256::new_from_slice(&mu_keys[i]).unwrap();
         mac.update(&routing_info);
         mac.update(&json_data.associated_data);
@@ -167,7 +208,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     onion.extend_from_slice(&routing_info); // Encrypted routing info (1300 bytes)
     onion.extend_from_slice(&current_hmac); // Final HMAC (32 bytes)
 
-    println!("onion: {}", hex::encode(&onion));
+    // Write output to file
+    fs::create_dir_all(args.output_dir.as_path())?;
+    let output_path = args.output_dir.join("output.txt");
+    fs::write(&output_path, hex::encode(&onion))?;
 
     Ok(())
 }
