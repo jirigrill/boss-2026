@@ -1,0 +1,5 @@
+.DS_Store
+bitcoin-*/
+lnd-*/
+target/
+build/
